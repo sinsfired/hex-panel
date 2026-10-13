@@ -1,1 +1,1 @@
-# cfce-connect
+# Hex Panel
