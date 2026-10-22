@@ -1,0 +1,169 @@
+<title>Hex Panel Sequencer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the board is the hero; a control strip above it, the coordinate map below. Single dark look on purpose: it's a light panel on a black board. */
+:root{
+  --bg:#0b0d14; --board:#12141f; --edge:#232838; --fg:#e6e8f0; --muted:#8a90a6;
+  --red:#ff3b3b; --green:#22e07a; --blue:#2f4bff; --off:#1b1f2c; --accent:#9fb2ff;
+  --display:"Saira Semi Condensed","Arial Narrow",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);}
+.wrap{max-width:1100px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
+h1{font-size:1.9rem;margin:0;letter-spacing:.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0;font-size:1rem;max-width:65ch}
+.controls{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--edge);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--muted);font:500 .9rem var(--display);padding:8px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--edge);color:var(--fg)}
+.btn{border:1px solid var(--edge);background:var(--board);color:var(--fg);font:700 .95rem var(--display);padding:8px 16px;border-radius:8px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#0b0d14;border-color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+label{color:var(--muted);font-size:.9rem;display:inline-flex;gap:8px;align-items:center}
+input[type=range]{accent-color:var(--accent);width:120px}
+.board{background:var(--board);border:1px solid var(--edge);border-radius:6px;padding:12px;overflow-x:auto}
+.board svg{display:block;width:100%;min-width:640px;height:auto}
+.hex{transition:fill .18s,filter .18s,opacity .18s}
+.hex.off{fill:var(--off)}
+.lbl{font:500 11px var(--mono);fill:var(--muted);pointer-events:none;text-anchor:middle;dominant-baseline:central}
+.lit .lbl{fill:#fff}
+.status{font:500 .9rem var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.status b{color:var(--fg);font-weight:500}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:20px}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+h2{font-size:1.15rem;margin:0 0 8px}
+.note{color:var(--muted);font-size:.95rem;line-height:1.5;max-width:65ch;margin:0 0 8px}
+.tbl{max-height:420px;overflow:auto;border:1px solid var(--edge);border-radius:6px}
+table{border-collapse:collapse;width:100%;font:400 .85rem var(--mono);font-variant-numeric:tabular-nums}
+th,td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--edge)}
+th{position:sticky;top:0;background:var(--board);color:var(--muted);font-weight:500}
+tr.now td{background:var(--edge);color:var(--fg)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+pre{font:400 .8rem var(--mono);background:var(--board);border:1px solid var(--edge);border-radius:6px;padding:10px;overflow:auto;max-height:200px;margin:0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+@media (prefers-reduced-motion:reduce){.hex{transition:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Hex Panel Sequencer</h1>
+    <p class="sub">47 tiles mapped from the photo: 16 red, 15 green, 16 blue. Every sequence starts at the right edge and moves left.</p>
+  </header>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Order">
+      <button id="m-grp" data-mode="grp" aria-pressed="true">By color</button>
+      <button id="m-col" data-mode="col" aria-pressed="false">Column sweep</button>
+      <button id="m-one" data-mode="one" aria-pressed="false">One by one</button>
+      <button id="m-wave" data-mode="wave" aria-pressed="false">Connector wave</button>
+    </div>
+    <div class="seg" role="group" aria-label="Style">
+      <button id="s-fill" data-style="fill" aria-pressed="true">Fill</button>
+      <button id="s-chase" data-style="chase" aria-pressed="false">Chase</button>
+    </div>
+    <label for="speed">Speed <input id="speed" type="range" min="40" max="600" value="160"></label>
+    <button id="play" class="btn primary">Play</button>
+    <button id="step" class="btn">Step</button>
+    <button id="reset" class="btn">Reset</button>
+  </div>
+
+  <div class="board"><svg id="svg" aria-label="Hex panel layout"></svg></div>
+  <div class="status" id="status"></div>
+
+  <div class="cols">
+    <section>
+      <h2>Coordinate system</h2>
+      <p class="note"><b>Col</b> counts from the right edge in half-tile steps (1 to 29), so lower numbers light first. <b>Row</b> runs top to bottom (1 to 7). Rows are staggered: a tile and its neighbor in the row above differ by 1 column. <b>q, r</b> is the axial hex coordinate, handy for neighbor math.</p>
+      <p class="note"><b>Tile #</b> is the panel numbering: red 1 to 16 from the right, then green 17 to 31, then blue 32 to 47, each group running right to left (top first when two tiles share a column). Each tile shows its number and its in-color ID (R1, G1, B1...). <b>By color</b> lights them in that order.</p>
+      <p class="note">There is no single unbroken chain through all 47 tiles (the layout branches), so a strict wiring order can't be read off the shape alone. The three orders here are the useful ones: column sweep (a straight right-to-left wipe), one by one (same, a tile at a time), and connector wave (spreads tile-to-tile from the rightmost tile, the way a signal would travel through the edge connectors).</p>
+      <div class="row"><button id="copy" class="btn">Copy order as JSON</button><span id="copied" class="status"></span></div>
+      <pre id="json"></pre>
+    </section>
+    <section>
+      <h2>Lighting order</h2>
+      <div class="tbl"><table><thead><tr><th>Step</th><th>Tile #</th><th>Col, Row</th><th>q, r</th><th>Color</th></tr></thead><tbody id="tbody"></tbody></table></div>
+    </section>
+  </div>
+</div>
+
+<script>
+// [q, r, color] in axial coords, pointy-top, read off the photo
+const RAW=[[-1,-1,'R'],[0,-1,'R'],[3,-1,'R'],[4,-1,'R'],
+[-4,0,'R'],[0,0,'R'],[1,0,'R'],[2,0,'R'],[4,0,'R'],
+[-8,1,'R'],[-7,1,'R'],[-5,1,'R'],[-3,1,'R'],[-2,1,'R'],[-1,1,'G'],[2,1,'G'],[3,1,'G'],[5,1,'R'],
+[-9,2,'G'],[-7,2,'G'],[-5,2,'G'],[-4,2,'G'],[-1,2,'G'],[0,2,'G'],[3,2,'G'],[5,2,'R'],
+[-9,3,'G'],[-7,3,'G'],[-6,3,'G'],[-3,3,'B'],[-2,3,'B'],[0,3,'G'],[1,3,'G'],[3,3,'B'],[4,3,'B'],
+[-8,4,'B'],[-6,4,'B'],[-5,4,'B'],[-4,4,'B'],[1,4,'B'],[2,4,'B'],
+[-8,5,'B'],[-7,5,'B'],[-4,5,'B'],[-3,5,'B'],[-1,5,'B'],[0,5,'B']];
+const NAME={R:'Red',G:'Green',B:'Blue'}, VAR={R:'--red',G:'--green',B:'--blue'};
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const maxX=Math.max(...RAW.map(([q,r])=>q+r/2)), minX=Math.min(...RAW.map(([q,r])=>q+r/2));
+const hexes=RAW.map(([q,r,c],i)=>{const x=q+r/2;return{i,q,r,c,x,col:Math.round((maxX-x)*2)+1,row:r+2}});
+const key=(q,r)=>q+','+r, byKey=new Map(hexes.map(h=>[key(h.q,h.r),h]));
+const DIRS=[[1,0],[-1,0],[0,-1],[1,-1],[-1,1],[0,1]];
+const nbrs=h=>DIRS.map(([a,b])=>byKey.get(key(h.q+a,h.r+b))).filter(Boolean);
+const byPos=(a,b)=>a.col-b.col||a.row-b.row;
+
+// Each order is a list of steps; each step is a list of tiles lit together
+function orders(){
+  const cols=new Map();[...hexes].sort(byPos).forEach(h=>{if(!cols.has(h.col))cols.set(h.col,[]);cols.get(h.col).push(h)});
+  const start=[...hexes].sort(byPos)[0], depth=new Map([[start,0]]), q=[start];
+  while(q.length){const h=q.shift();for(const n of nbrs(h).sort(byPos))if(!depth.has(n)){depth.set(n,depth.get(h)+1);q.push(n)}}
+  const waves=[];for(const [h,d] of depth)(waves[d]??=[]).push(h);
+  // Panel numbering: all red right to left, then green, then blue
+  const grp=['R','G','B'].flatMap(c=>hexes.filter(h=>h.c===c).sort(byPos));
+  grp.forEach((h,i)=>{h.n=i+1;h.tag=h.c+(grp.filter(g=>g.c===h.c).indexOf(h)+1)});
+  return{grp:grp.map(h=>[h]),col:[...cols.values()],one:[...hexes].sort(byPos).map(h=>[h]),wave:waves.map(w=>w.sort(byPos))};
+}
+const ORD=orders();
+
+// Draw
+const S=34, W=Math.sqrt(3)*S, PAD=10, svg=document.getElementById('svg');
+const vbW=(maxX-minX)*W+W+PAD*2, vbH=6*1.5*S+2*S+PAD*2;
+svg.setAttribute('viewBox',`0 0 ${vbW} ${vbH}`);
+const NS='http://www.w3.org/2000/svg';
+svg.innerHTML=`<defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+const pts=Array.from({length:6},(_,k)=>{const a=Math.PI/180*(60*k-90),s=S*.94;return`${(s*Math.cos(a)).toFixed(1)},${(s*Math.sin(a)).toFixed(1)}`}).join(' ');
+hexes.forEach(h=>{
+  const g=document.createElementNS(NS,'g');
+  g.setAttribute('transform',`translate(${PAD+W/2+(h.x-minX)*W},${PAD+S+(h.r+1)*1.5*S})`);
+  g.innerHTML=`<title>Col ${h.col}, Row ${h.row} · q ${h.q}, r ${h.r} · ${NAME[h.c]}</title><polygon class="hex off" points="${pts}"/><text class="lbl" y="-7"></text><text class="lbl" y="9" style="font-size:9px"></text>`;
+  svg.appendChild(g);h.g=g;h.poly=g.querySelector('polygon');[h.t1,h.t2]=g.querySelectorAll('text');
+});
+
+// State
+let mode='grp', style='fill', pos=-1, timer=null;
+const $=id=>document.getElementById(id);
+function stepOf(h){return ORD[mode].findIndex(s=>s.includes(h))}
+function render(){
+  const steps=ORD[mode];
+  hexes.forEach(h=>{
+    const s=stepOf(h), on=style==='fill'?s<=pos:s===pos;
+    h.poly.classList.toggle('off',!on);h.g.classList.toggle('lit',on);
+    h.poly.style.fill=on?css(VAR[h.c]):'';h.poly.style.filter=on?'url(#glow)':'';
+    h.t1.textContent=h.n;h.t2.textContent=h.tag;
+  });
+  $('status').innerHTML=`Step <b>${Math.max(pos+1,0)}</b> of <b>${steps.length}</b>`+(pos>=0?` · lit: <b>${steps[pos].map(h=>h.col+','+h.row).join('  ')}</b>`:' · press Play');
+  document.querySelectorAll('#tbody tr').forEach(tr=>tr.classList.toggle('now',+tr.dataset.s===pos));
+}
+function table(){
+  $('tbody').innerHTML=ORD[mode].flatMap((s,i)=>s.map(h=>`<tr data-s="${i}"><td>${i+1}</td><td>${h.n} (${h.tag})</td><td>${h.col}, ${h.row}</td><td>${h.q}, ${h.r}</td><td><span class="dot" style="background:var(${VAR[h.c]})"></span>${NAME[h.c]}</td></tr>`)).join('');
+  $('json').textContent=JSON.stringify(ORD[mode].map((s,i)=>({step:i+1,tiles:s.map(h=>({tile:h.n,id:h.tag,col:h.col,row:h.row,q:h.q,r:h.r,color:NAME[h.c]}))})),null,1).replace(/\n\s+(?=["}])/g,' ').replace(/\{\s+/g,'{');
+}
+function advance(){pos=pos+1>=ORD[mode].length?-1:pos+1;render()}
+function stop(){clearInterval(timer);timer=null;$('play').textContent='Play'}
+function play(){stop();timer=setInterval(advance,620-$('speed').value);$('play').textContent='Pause'}
+$('play').onclick=()=>timer?stop():play();
+$('step').onclick=()=>{stop();advance()};
+$('reset').onclick=()=>{stop();pos=-1;render()};
+$('speed').oninput=()=>{if(timer)play()};
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;document.querySelectorAll('[data-mode]').forEach(x=>x.setAttribute('aria-pressed',x===b));pos=-1;table();render()});
+document.querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{style=b.dataset.style;document.querySelectorAll('[data-style]').forEach(x=>x.setAttribute('aria-pressed',x===b));render()});
+$('copy').onclick=()=>{const t=$('json').textContent;navigator.clipboard.writeText(t).then(()=>$('copied').textContent='Copied',()=>{getSelection().selectAllChildren($('json'));$('copied').textContent='Selected, press Ctrl+C'})};
+table();
+// Open in a lit state so the first frame shows the sweep half done
+pos=Math.floor(ORD[mode].length/2);render();
+if(!matchMedia('(prefers-reduced-motion: reduce)').matches)play();
+</script>

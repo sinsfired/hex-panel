@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hex Panel Control</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Board up top, controls in a side column (stacks on narrow screens). Dark on purpose: it mirrors the black board. */
+:root{
+  --bg:#0b0d14; --board:#12141f; --edge:#232838; --fg:#e6e8f0; --muted:#8a90a6;
+  --off:#1b1f2c; --accent:#9fb2ff; --sel:#ffffff; --ok:#22e07a; --err:#ff6b6b;
+  --display:"Saira Semi Condensed","Arial Narrow",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px var(--display)}
+.wrap{max-width:1320px;margin:0 auto;padding:20px 16px 40px;display:grid;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;justify-content:space-between}
+h1{font-size:1.7rem;margin:0}
+.conn{font:500 .85rem var(--mono);color:var(--muted)}
+.conn b{font-weight:500}
+.conn .ok{color:var(--ok)} .conn .err{color:var(--err)}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;align-items:start}
+@media (max-width:980px){.main{grid-template-columns:1fr}}
+.board{background:var(--board);border:1px solid var(--edge);border-radius:6px;padding:10px;overflow-x:auto}
+.board svg{display:block;width:100%;min-width:620px;height:auto;user-select:none;touch-action:none}
+.tile{cursor:pointer}
+.tile polygon{stroke:var(--edge);stroke-width:1.5;transition:fill .08s}
+.tile.sel polygon{stroke:var(--sel);stroke-width:3.5}
+.tile:hover polygon{stroke:var(--accent)}
+.lbl{font:500 11px var(--mono);fill:#fff;pointer-events:none;text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#0008;stroke-width:3px}
+.lbl.dim{fill:var(--muted);stroke:none}
+.panel{background:var(--board);border:1px solid var(--edge);border-radius:6px;padding:14px;display:grid;gap:12px}
+.side{display:grid;gap:12px}
+h2{font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+.seg{display:flex;border:1px solid var(--edge);border-radius:8px;overflow:hidden}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);font:500 .9rem var(--display);padding:8px 6px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--edge);color:var(--fg)}
+.btn{border:1px solid var(--edge);background:var(--bg);color:var(--fg);font:700 .9rem var(--display);padding:8px 12px;border-radius:8px;cursor:pointer}
+.btn.primary{background:var(--accent);color:#0b0d14;border-color:var(--accent)}
+.btn.danger{color:var(--err)}
+.btn:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--edge);border-radius:999px;padding:5px 10px;background:var(--bg);color:var(--fg);font:500 .85rem var(--display);cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--accent);background:var(--edge)}
+.chip .x{color:var(--muted);padding-left:2px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+label{color:var(--muted);font-size:.85rem;display:grid;gap:4px}
+input[type=text],input[type=number],select{background:var(--bg);color:var(--fg);border:1px solid var(--edge);border-radius:6px;padding:7px 8px;font:400 .9rem var(--mono);width:100%}
+input[type=color]{width:52px;height:38px;border:1px solid var(--edge);border-radius:6px;background:var(--bg);padding:2px;cursor:pointer}
+input[type=range]{accent-color:var(--accent);width:100%}
+.swatches{display:flex;flex-wrap:wrap;gap:6px}
+.sw{width:28px;height:28px;border-radius:6px;border:1px solid var(--edge);cursor:pointer}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.status{font:400 .85rem var(--mono);color:var(--muted);min-height:1.2em;font-variant-numeric:tabular-nums}
+.hint{color:var(--muted);font-size:.85rem;line-height:1.45;margin:0}
+.wiz{border:1px solid var(--accent)}
+details summary{cursor:pointer;font-weight:700}
+@media (prefers-reduced-motion:reduce){.tile polygon{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Hex Panel Control</h1>
+    <div class="conn" id="conn">Connecting…</div>
+  </header>
+
+  <div class="main">
+    <div class="side" style="gap:10px">
+      <div class="board"><svg id="svg" aria-label="Hex panel. Click tiles to select them."></svg></div>
+      <div class="status" id="selinfo"></div>
+    </div>
+
+    <div class="side">
+      <!-- Selection -->
+      <section class="panel" id="selPanel">
+        <h2>Select</h2>
+        <div class="seg" role="group" aria-label="Selection mode">
+          <button id="sm-all" data-sm="all" aria-pressed="false">All</button>
+          <button id="sm-select" data-sm="select" aria-pressed="true">Select</button>
+          <button id="sm-groups" data-sm="groups" aria-pressed="false">Groups</button>
+        </div>
+        <p class="hint" id="smHint"></p>
+        <div id="groupBox" class="chips" hidden></div>
+        <div class="row">
+          <button class="btn" id="selNone">Clear</button>
+          <button class="btn" id="selInvert">Invert</button>
+        </div>
+        <div class="row" style="flex-wrap:nowrap">
+          <input type="text" id="groupName" placeholder="Name this selection" aria-label="Group name">
+          <button class="btn" id="saveGroup">Save group</button>
+        </div>
+      </section>
+
+      <!-- Color + pattern -->
+      <section class="panel">
+        <h2>Color &amp; pattern</h2>
+        <div class="row">
+          <input type="color" id="color" value="#ff3b3b" aria-label="Color">
+          <div class="swatches" id="swatches"></div>
+        </div>
+        <label for="pattern">Pattern
+          <select id="pattern">
+            <option value="solid">Solid</option>
+            <option value="chase">Chase</option>
+            <option value="wave">Wave</option>
+            <option value="sequence">Fill one by one</option>
+            <option value="breathe">Breathe</option>
+            <option value="blink">Blink</option>
+            <option value="rainbow">Rainbow sweep</option>
+          </select>
+        </label>
+        <label for="dir">Direction
+          <select id="dir">
+            <option value="rtl">Right to left</option>
+            <option value="cw">Clockwise (around the selection)</option>
+            <option value="ccw">Counter-clockwise</option>
+          </select>
+        </label>
+        <div class="grid2">
+          <label for="speed">Speed <input type="range" id="speed" min="1" max="20" value="8"></label>
+          <label for="bri">Brightness <input type="range" id="bri" min="5" max="255" value="200"></label>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="live" checked> Send changes to the panel as I pick</label>
+        <div class="row">
+          <button class="btn primary" id="apply">Apply to selection</button>
+          <button class="btn" id="stop" disabled>Stop all patterns</button>
+        </div>
+        <h2>Running patterns</h2>
+        <p class="hint" id="layersEmpty">None. Pick tiles, choose a pattern and press Apply. Each selection you apply keeps its own pattern.</p>
+        <div class="chips" id="layers"></div>
+        <div class="row">
+          <button class="btn" id="offSel">Turn selection off</button>
+          <button class="btn" id="offAll">All off</button>
+          <button class="btn" id="restore">Original colors</button>
+        </div>
+        <p class="hint">Right-click a hex (or press Delete on it) to turn just that hex off. Do it again to turn it back on.</p>
+        <div class="status" id="sendStatus"></div>
+      </section>
+
+      <!-- Setup -->
+      <section class="panel">
+        <details id="setup">
+          <summary>WLED setup</summary>
+          <div style="display:grid;gap:10px;margin-top:10px">
+            <label for="ip">WLED IP address (leave empty to test without the panel)
+              <input type="text" id="ip" placeholder="192.168.1.50"></label>
+            <div class="grid2">
+              <label for="lph">LEDs per hex <input type="number" id="lph" min="1" value="1"></label>
+              <label for="off">LEDs before first hex <input type="number" id="off" min="0" value="0"></label>
+            </div>
+            <div class="row">
+              <button class="btn primary" id="saveCfg">Save &amp; test</button>
+            </div>
+            <p class="hint">In WLED, set the LED count to (LEDs per hex × 47) + offset. Realtime UDP must be on (Config › Sync Interfaces › Receive UDP realtime), which is the default.</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- Mapping wizard -->
+      <section class="panel" id="mapPanel">
+        <h2>Tile order</h2>
+        <p class="hint" id="mapState"></p>
+        <div class="row">
+          <button class="btn" id="mapStart">Map tiles</button>
+          <button class="btn danger" id="mapReset">Reset order</button>
+        </div>
+        <div id="wiz" hidden style="display:grid;gap:8px">
+          <p class="hint" id="wizText"></p>
+          <div class="row">
+            <button class="btn" id="wizBack">Back</button>
+            <button class="btn" id="wizSkip">Nothing lit, skip</button>
+            <button class="btn primary" id="wizDone">Finish &amp; save</button>
+            <button class="btn" id="wizCancel">Cancel</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- Layout: [q, r, group] axial coords, pointy-top, from the photo ----
+const RAW=[[-1,-1,'R'],[0,-1,'R'],[3,-1,'R'],[4,-1,'R'],
+[-4,0,'R'],[0,0,'R'],[1,0,'R'],[2,0,'R'],[4,0,'R'],
+[-8,1,'R'],[-7,1,'R'],[-5,1,'R'],[-3,1,'R'],[-2,1,'R'],[-1,1,'G'],[2,1,'G'],[3,1,'G'],[5,1,'R'],
+[-9,2,'G'],[-7,2,'G'],[-5,2,'G'],[-4,2,'G'],[-1,2,'G'],[0,2,'G'],[3,2,'G'],[5,2,'R'],
+[-9,3,'G'],[-7,3,'G'],[-6,3,'G'],[-3,3,'B'],[-2,3,'B'],[0,3,'G'],[1,3,'G'],[3,3,'B'],[4,3,'B'],
+[-8,4,'B'],[-6,4,'B'],[-5,4,'B'],[-4,4,'B'],[1,4,'B'],[2,4,'B'],
+[-8,5,'B'],[-7,5,'B'],[-4,5,'B'],[-3,5,'B'],[-1,5,'B'],[0,5,'B']];
+const ORIG={R:'ff0000',G:'00ff40',B:'0020ff'}, GNAME={R:'Red',G:'Green',B:'Blue'};
+const maxX=Math.max(...RAW.map(([q,r])=>q+r/2)), minX=Math.min(...RAW.map(([q,r])=>q+r/2));
+const byPos=(a,b)=>a.col-b.col||a.row-b.row;
+let tiles=RAW.map(([q,r,g])=>{const x=q+r/2;return{q,r,g,x,col:Math.round((maxX-x)*2)+1,row:r+2}});
+// Tile #: red right to left, then green, then blue
+tiles=['R','G','B'].flatMap(g=>tiles.filter(t=>t.g===g).sort(byPos));
+tiles.forEach((t,i)=>{t.n=i+1;t.tag=t.g+(tiles.filter(u=>u.g===t.g).indexOf(t)+1)});
+const N=tiles.length, MAXCOL=Math.max(...tiles.map(t=>t.col));
+
+// ---- State ----
+let colors=tiles.map(t=>ORIG[t.g]);      // static color per tile (index = tile # - 1)
+let frame=colors.slice();                // what is showing right now
+let sel=new Set(), selMode='select', activeGroups=new Set();
+let config={wledIp:'',ledsPerHex:1,ledOffset:0,map:null,groups:{}};
+let anim=null, wiz=null, hexOff=new Set();
+const masked=c=>c.map((v,i)=>hexOff.has(i+1)?'000000':v);
+const $=id=>document.getElementById(id);
+
+// ---- Draw ----
+const S=34,W=Math.sqrt(3)*S,PAD=10,NS='http://www.w3.org/2000/svg',svg=$('svg');
+svg.setAttribute('viewBox',`0 0 ${(maxX-minX)*W+W+PAD*2} ${6*1.5*S+2*S+PAD*2}`);
+const pts=Array.from({length:6},(_,k)=>{const a=Math.PI/180*(60*k-90),s=S*.94;return`${(s*Math.cos(a)).toFixed(1)},${(s*Math.sin(a)).toFixed(1)}`}).join(' ');
+tiles.forEach(t=>{
+  const g=document.createElementNS(NS,'g');g.classList.add('tile');
+  g.setAttribute('transform',`translate(${PAD+W/2+(t.x-minX)*W},${PAD+S+(t.r+1)*1.5*S})`);
+  g.setAttribute('tabindex','0');g.setAttribute('role','button');
+  g.innerHTML=`<title>Tile ${t.n} (${t.tag}) · col ${t.col}, row ${t.row}</title><polygon points="${pts}"/><text class="lbl" y="-7">${t.n}</text><text class="lbl" y="9" style="font-size:9px">${t.tag}</text>`;
+  g.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();tileDown(t)});
+  g.addEventListener('contextmenu',e=>{e.preventDefault();toggleOff(t)});
+  g.addEventListener('pointerenter',e=>{if(e.buttons&1)tileDrag(t)});
+  g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();tileDown(t)}if(e.key==='Delete'){e.preventDefault();toggleOff(t)}});
+  svg.appendChild(g);t.el=g;t.poly=g.querySelector('polygon');[t.l1,t.l2]=g.querySelectorAll('text');
+});
+function paint(){
+  tiles.forEach((t,i)=>{
+    const c=frame[i], dark=c==='000000';
+    t.poly.style.fill=dark?'var(--off)':'#'+c;
+    t.el.classList.toggle('sel',sel.has(t.n));
+    t.l1.classList.toggle('dim',dark);t.l2.classList.toggle('dim',dark);
+    if(wiz){const p=wiz.map[i];t.l2.textContent=p==null?'—':'@'+(p+1)}else t.l2.textContent=t.tag;
+  });
+  $('selinfo').textContent=sel.size?`${sel.size} selected: ${[...sel].sort((a,b)=>a-b).join(', ')}`:'Nothing selected. Click or drag across tiles to select them.';
+}
+
+// ---- Selection ----
+let dragAdd=true;
+function tileDown(t){
+  if(wiz) return wizPick(t);
+  if(selMode!=='select') setSelMode('select');
+  dragAdd=!sel.has(t.n); dragAdd?sel.add(t.n):sel.delete(t.n); paint();
+}
+function tileDrag(t){ if(wiz||selMode!=='select')return; dragAdd?sel.add(t.n):sel.delete(t.n); paint(); }
+const HINTS={all:'Every tile is selected.',select:'Click a tile to select it. Drag to select several.',groups:'Pick one or more groups. Save your own from any selection.'};
+function setSelMode(m){
+  selMode=m;document.querySelectorAll('[data-sm]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.sm===m));
+  $('smHint').textContent=HINTS[m];$('groupBox').hidden=m!=='groups';
+  if(m==='all') sel=new Set(tiles.map(t=>t.n));
+  if(m==='groups'){activeGroups.clear();sel.clear();renderGroups()}
+  paint();
+}
+function allGroups(){
+  const g={};['R','G','B'].forEach(k=>g[GNAME[k]+' group']={tiles:tiles.filter(t=>t.g===k).map(t=>t.n),dot:'#'+ORIG[k],builtin:true});
+  for(const [name,list] of Object.entries(config.groups||{})) g[name]={tiles:list};
+  return g;
+}
+function renderGroups(){
+  const box=$('groupBox');box.innerHTML='';
+  for(const [name,g] of Object.entries(allGroups())){
+    const b=document.createElement('button');b.className='chip';b.setAttribute('aria-pressed',activeGroups.has(name));
+    b.innerHTML=(g.dot?`<span class="dot" style="background:${g.dot}"></span>`:'')+`${name} <span class="hint">${g.tiles.length}</span>`+(g.builtin?'':'<span class="x" title="Delete group">✕</span>');
+    b.onclick=e=>{
+      if(e.target.classList.contains('x')){delete config.groups[name];activeGroups.delete(name);saveConfig();}
+      else activeGroups.has(name)?activeGroups.delete(name):activeGroups.add(name);
+      const all=allGroups();sel=new Set([...activeGroups].flatMap(n=>all[n]?all[n].tiles:[]));renderGroups();paint();
+    };
+    box.appendChild(b);
+  }
+}
+document.querySelectorAll('[data-sm]').forEach(b=>b.onclick=()=>setSelMode(b.dataset.sm));
+$('selNone').onclick=()=>{sel.clear();activeGroups.clear();if(selMode!=='select')setSelMode('select');paint()};
+$('selInvert').onclick=()=>{sel=new Set(tiles.map(t=>t.n).filter(n=>!sel.has(n)));if(selMode!=='select')setSelMode('select');paint()};
+$('saveGroup').onclick=()=>{
+  const name=$('groupName').value.trim();
+  if(!name||!sel.size){$('groupName').placeholder=!sel.size?'Select tiles first':'Type a name';return}
+  config.groups={...config.groups,[name]:[...sel].sort((a,b)=>a-b)};$('groupName').value='';saveConfig();
+  setSelMode('groups');activeGroups.add(name);sel=new Set(config.groups[name]);renderGroups();paint();
+};
+
+// ---- Sending ----
+const bri=()=>+$('bri').value;
+let inflight=false;
+async function api(url,body){
+  const r=await fetch(url,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body&&JSON.stringify(body)});
+  const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j;
+}
+async function applyStatic(){
+  frame=masked(colors);paint();
+  try{const r=await api('/api/apply',{colors:frame,bri:bri()});status(r.dryRun?'Updated (dry run: no WLED IP set)':'Sent to panel',true)}
+  catch(e){status('Could not reach WLED: '+e.message,false)}
+}
+async function sendFrame(){
+  if(inflight)return;inflight=true;
+  try{await api('/api/frame',{colors:frame,bri:bri()})}catch(e){status('Could not reach WLED: '+e.message,false)}
+  inflight=false;
+}
+function status(msg,ok){const s=$('sendStatus');s.textContent=msg;s.style.color=ok?'var(--muted)':'var(--err)'}
+
+// ---- Color + patterns ----
+const SW=['ff0000','ff7a00','ffd400','00ff40','00e5ff','0020ff','8a2be2','ff00aa','ffffff'];
+SW.forEach(h=>{const b=document.createElement('button');b.className='sw';b.style.background='#'+h;b.title='#'+h;b.setAttribute('aria-label','Color #'+h);
+  b.onclick=()=>{$('color').value='#'+h;colorPicked()};$('swatches').appendChild(b)});
+const hex2rgb=h=>[0,2,4].map(i=>parseInt(h.slice(i,i+2),16));
+const rgb2hex=a=>a.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
+const scale=(h,k)=>rgb2hex(hex2rgb(h).map(v=>v*k));
+const hsv=(hh,s=1,v=1)=>{const f=n=>{const k=(n+hh/60)%6;return v-v*s*Math.max(0,Math.min(k,4-k,1))};return rgb2hex([f(5)*255,f(3)*255,f(1)*255])};
+const picked=()=>$('color').value.slice(1);
+let pickTimer;
+function colorPicked(){
+  if(!$('live').checked||$('pattern').value!=='solid'||!sel.size)return;
+  clearTimeout(pickTimer);pickTimer=setTimeout(()=>{for(const n of sel){colors[n-1]=picked();hexOff.delete(n)}applyStatic()},120);
+}
+$('color').addEventListener('input',colorPicked);
+$('bri').addEventListener('change',()=>{if(!anim&&$('live').checked)applyStatic()});
+
+// Each running pattern is a layer: its own tiles, pattern, color, speed and direction.
+// pos = a tile's place along the layer's path (0..L-1); later layers win where they overlap.
+const PAT={
+  chase:(p,L,t,c,loop)=>{
+    const head=loop?(t*1.6)%L:(t*1.6)%(L+4)-1, d=loop?((head-p)%L+L)%L:head-p;
+    return d>=0&&d<3?scale(c,1-d/4):scale(c,.06)},
+  wave:(p,L,t,c,loop)=>scale(c,.15+.85*(.5+.5*Math.sin(p*(loop?2*Math.PI/L:.9)-t*1.2))),
+  sequence:(p,L,t,c)=>p<Math.floor(t*2)%(L+4)?c:'000000',
+  breathe:(p,L,t,c)=>scale(c,.08+.92*Math.sin(t*.8)**2),
+  blink:(p,L,t,c)=>Math.floor(t*1.2)%2?c:'000000',
+  rainbow:(p,L,t)=>hsv((p/L*360+t*60)%360),
+};
+const DIRNAME={rtl:'right to left',cw:'clockwise',ccw:'counter-clockwise'};
+// Order tiles along the path. Clockwise starts at 3 o'clock around the selection's center.
+function pathOf(ts,dir){
+  const px=t=>t.x*Math.sqrt(3), py=t=>t.r*1.5;
+  if(dir==='rtl'){const minCol=Math.min(...ts.map(t=>t.col));
+    return{pos:new Map(ts.map(t=>[t.n,(t.col-minCol)/2])),L:(Math.max(...ts.map(t=>t.col))-minCol)/2+1}}
+  const cx=ts.reduce((s,t)=>s+px(t),0)/ts.length, cy=ts.reduce((s,t)=>s+py(t),0)/ts.length;
+  const ang=t=>{const a=(Math.atan2(py(t)-cy,px(t)-cx)+2*Math.PI)%(2*Math.PI);return dir==='cw'?a:(2*Math.PI-a)%(2*Math.PI)};
+  const order=[...ts].sort((a,b)=>ang(a)-ang(b)||a.n-b.n);
+  return{pos:new Map(order.map((t,i)=>[t.n,i])),L:order.length};
+}
+let layers=[], layerId=0;
+function addLayer(){
+  const ts=tiles.filter(t=>sel.has(t.n)), dir=$('dir').value;
+  // a tile belongs to one layer: take these tiles out of older layers
+  layers.forEach(l=>l.tiles=l.tiles.filter(t=>!sel.has(t.n)));layers=layers.filter(l=>l.tiles.length);
+  layers.forEach(l=>Object.assign(l,pathOf(l.tiles,l.dir)));
+  layers.push({id:++layerId,tiles:ts,pattern:$('pattern').value,color:picked(),speed:+$('speed').value/8,dir,t0:performance.now(),...pathOf(ts,dir)});
+  renderLayers();run();
+}
+function run(){
+  if(anim||!layers.length)return;
+  let last=0;
+  const tick=now=>{
+    if(!layers.length){anim=null;applyStatic();return}   // last pattern removed: hand back to static colors
+    anim=requestAnimationFrame(tick);
+    if(now-last<40)return;last=now;                 // ~25 frames a second
+    frame=colors.slice();
+    for(const l of layers){const t=(now-l.t0)/1000*l.speed;
+      for(const tl of l.tiles)frame[tl.n-1]=PAT[l.pattern](l.pos.get(tl.n),l.L,t,l.color,l.dir!=='rtl')}
+    frame=masked(frame);paint();sendFrame();
+  };
+  anim=requestAnimationFrame(tick);
+}
+function removeTilesFromLayers(set){
+  layers.forEach(l=>l.tiles=l.tiles.filter(t=>!set.has(t.n)));layers=layers.filter(l=>l.tiles.length);
+  layers.forEach(l=>Object.assign(l,pathOf(l.tiles,l.dir)));renderLayers();
+}
+function stopPattern(restore=true){
+  layers=[];if(anim){cancelAnimationFrame(anim);anim=null}
+  renderLayers();if(restore)applyStatic();
+}
+function renderLayers(){
+  const box=$('layers');box.innerHTML='';$('stop').disabled=!layers.length;
+  $('layersEmpty').hidden=!!layers.length;
+  layers.forEach(l=>{
+    const b=document.createElement('button');b.className='chip';b.title='Click to select these tiles';
+    const name=$('pattern').querySelector(`option[value="${l.pattern}"]`).text.replace(/ \(.*\)/,'');
+    b.innerHTML=`<span class="dot" style="background:${l.pattern==='rainbow'?'conic-gradient(red,yellow,lime,cyan,blue,magenta,red)':'#'+l.color}"></span>${name} · ${DIRNAME[l.dir]} · ${l.tiles.length} <span class="x" title="Stop this pattern">✕</span>`;
+    b.onclick=e=>{
+      if(e.target.classList.contains('x')){layers=layers.filter(x=>x!==l);renderLayers();if(!layers.length){stopPattern(true)}return}
+      setSelMode('select');sel=new Set(l.tiles.map(t=>t.n));paint();
+    };
+    box.appendChild(b);
+  });
+}
+$('apply').onclick=()=>{
+  if(!sel.size)return status('Select some tiles first',false);
+  for(const n of sel)hexOff.delete(n);               // applying to a hex turns it back on
+  if($('pattern').value==='solid'){removeTilesFromLayers(sel);for(const n of sel)colors[n-1]=picked();if(!anim)applyStatic()}
+  else{addLayer();status(`Added ${$('pattern').selectedOptions[0].text.toLowerCase()}, ${DIRNAME[$('dir').value]}, on ${sel.size} tiles. ${layers.length} pattern${layers.length>1?'s':''} running.`,true)}
+};
+$('stop').onclick=()=>stopPattern(true);
+$('offSel').onclick=()=>{if(!sel.size)return status('Select some tiles first',false);removeTilesFromLayers(sel);for(const n of sel)colors[n-1]='000000';if(!anim)applyStatic()};
+$('offAll').onclick=()=>{stopPattern(false);colors=colors.map(()=>'000000');hexOff.clear();applyStatic()};
+// Single hex off/on. An off hex keeps its color underneath and stays dark through patterns.
+function toggleOff(t){
+  if(wiz)return;
+  const n=t.n;
+  if(hexOff.has(n))hexOff.delete(n);
+  else if(colors[n-1]==='000000'){colors[n-1]=ORIG[t.g]}   // already dark: bring it back in its group color
+  else hexOff.add(n);
+  if(anim)return;                                    // a running pattern picks it up next frame
+  applyStatic();
+}
+$('restore').onclick=()=>{stopPattern(false);colors=tiles.map(t=>ORIG[t.g]);hexOff.clear();applyStatic()};
+
+// ---- Config ----
+async function saveConfig(){try{config=await api('/api/config',config)}catch(e){status('Could not save settings: '+e.message,false)}showMap()}
+async function ping(){
+  const c=$('conn');
+  try{const r=await api('/api/ping');
+    c.innerHTML=r.dryRun?'<b>Dry run</b> · no WLED IP set, nothing is sent':`<b class="ok">Connected</b> · ${r.name||'WLED'} ${r.ver||''} at ${config.wledIp} · ${r.leds} LEDs`;
+    if(!r.dryRun&&r.leds&&r.leds<config.ledOffset+N*config.ledsPerHex)c.innerHTML+=` <b class="err">· WLED has fewer LEDs than ${config.ledOffset+N*config.ledsPerHex}</b>`;
+  }catch(e){c.innerHTML=`<b class="err">Not connected</b> · ${config.wledIp||''}: ${e.message}`}
+}
+$('saveCfg').onclick=async()=>{config.wledIp=$('ip').value.trim();config.ledsPerHex=+$('lph').value||1;config.ledOffset=+$('off').value||0;await saveConfig();await ping();applyStatic()};
+function showMap(){
+  const m=config.map,done=m?m.filter(v=>v!=null).length:0;
+  $('mapState').textContent=m?`Custom order saved: ${done} of ${N} tiles mapped to their place on the LED chain.`:`Using tile # order (tile 1 = first on the chain). If the panel lights the wrong tiles, run Map tiles.`;
+}
+
+// ---- Mapping wizard: light one chain position at a time, user clicks the tile that lit ----
+function wizShow(){
+  const off=Array(N).fill('000000');
+  if(wiz.pos<N){off[wiz.pos]='ffffff';$('wizText').textContent=`Chain position ${wiz.pos+1} of ${N} is lit white on the panel. Click that tile here.`}
+  else $('wizText').textContent='All positions done. Press Finish & save.';
+  frame=tiles.map((t,i)=>wiz.map[i]===wiz.pos?'ffffff':(wiz.map[i]!=null?'2a3350':'000000'));paint();
+  api('/api/apply',{colors:off,bri:bri(),raw:true}).catch(e=>status('Could not reach WLED: '+e.message,false));
+}
+function wizPick(t){
+  if(wiz.pos>=N)return;
+  wiz.map=wiz.map.map(p=>p===wiz.pos?null:p);       // a position belongs to one tile
+  wiz.map[t.n-1]=wiz.pos;wiz.hist.push(wiz.pos);wiz.pos++;wizShow();
+}
+$('mapStart').onclick=()=>{stopPattern(false);sel.clear();wiz={pos:0,map:Array(N).fill(null),hist:[]};$('wiz').hidden=false;$('mapPanel').classList.add('wiz');$('mapStart').disabled=true;wizShow()};
+$('wizSkip').onclick=()=>{if(wiz.pos<N){wiz.hist.push(wiz.pos);wiz.pos++;wizShow()}};
+$('wizBack').onclick=()=>{if(!wiz.hist.length)return;wiz.pos=wiz.hist.pop();wiz.map=wiz.map.map(p=>p===wiz.pos?null:p);wizShow()};
+function wizEnd(){wiz=null;$('wiz').hidden=true;$('mapPanel').classList.remove('wiz');$('mapStart').disabled=false;applyStatic()}
+$('wizDone').onclick=async()=>{config.map=wiz.map;await saveConfig();wizEnd()};
+$('wizCancel').onclick=wizEnd;
+$('mapReset').onclick=async()=>{config.map=null;await saveConfig();applyStatic()};
+
+// ---- Start ----
+(async()=>{
+  try{config=await api('/api/config')}catch(e){$('conn').innerHTML='<b class="err">Server not running</b> · start it with: node server.js'}
+  $('ip').value=config.wledIp||'';$('lph').value=config.ledsPerHex;$('off').value=config.ledOffset;
+  if(!config.wledIp)$('setup').open=true;
+  setSelMode('select');showMap();ping();
+})();
+paint();
+</script>
+</body>
+</html>
